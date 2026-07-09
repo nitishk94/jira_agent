@@ -1,0 +1,7 @@
+projects:
+  - jira_project_key: "ENG"
+    github_repo: "org/backend-service"
+    default_branch: "main"
+  - jira_project_key: "PLAT"
+    github_repo: "org/platform-core"
+    default_branch: "main"
