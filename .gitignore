@@ -15,5 +15,6 @@ logs/
 .pytest_cache/
 .repo-mirrors/
 .demo-repo-src/
+.cocoindex-workspace/
 config/service-account.json
 *.key.json

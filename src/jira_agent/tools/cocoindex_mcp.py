@@ -3,7 +3,8 @@ from __future__ import annotations
 from typing import Any
 
 from google.adk.tools import FunctionTool
-from google.adk.tools.mcp_tool import MCPToolset, StreamableHTTPConnectionParams
+from google.adk.tools.mcp_tool import McpToolset, StdioConnectionParams
+from mcp import StdioServerParameters
 
 from jira_agent.config import Settings
 from jira_agent.execution.docker_runner import DockerTicketContainer
@@ -12,19 +13,35 @@ from jira_agent.execution.docker_runner import DockerTicketContainer
 def build_cocoindex_tool(container: DockerTicketContainer, settings: Settings) -> Any:
     """Returns the ADK tool the Fix-Loop agent calls to find relevant code.
 
-    Real mode (COCOINDEX_MCP_URL set): connects to the CocoIndex MCP server
-    for BM25 + vector hybrid search, per spec §5 — CocoIndex's indexing
-    internals stay fully abstracted behind this MCP interface.
+    Real mode (COCOINDEX_CONTAINER_NAME set): the official `cocoindex-code`
+    MCP server (`ccc mcp`) runs stdio-only — no HTTP/SSE transport — inside
+    its own long-running container (see docker/cocoindex-compose.yml and
+    scripts/cocoindex_setup.sh), independent of any ticket run per spec §5.
+    We reach it the same way CocoIndex's own docs document for Docker use:
+    `docker exec -i -w /workspace/<repo> <container> ccc mcp`.
 
-    Stub mode (no URL configured yet): falls back to a plain-text search
-    (`git grep`) over the ticket's checked-out repo inside its container, so
-    the rest of the pipeline (navigate -> fix -> validate) is still
-    exercisable without a real index. This is a stand-in, not a pretend
-    semantic search.
+    Stub mode (no container configured yet): falls back to a plain-text
+    search (`git grep`) over the ticket's checked-out repo inside its own
+    Fix-Loop container, so the rest of the pipeline (navigate -> fix ->
+    validate) is still exercisable without a real index. This is a
+    stand-in, not a pretend semantic search.
     """
-    if settings.cocoindex_mcp_url:
-        return MCPToolset(
-            connection_params=StreamableHTTPConnectionParams(url=settings.cocoindex_mcp_url),
+    if settings.cocoindex_container_name:
+        return McpToolset(
+            connection_params=StdioConnectionParams(
+                server_params=StdioServerParameters(
+                    command="docker",
+                    args=[
+                        "exec",
+                        "-i",
+                        "-w",
+                        f"/workspace/{settings.cocoindex_repo_dir}",
+                        settings.cocoindex_container_name,
+                        "ccc",
+                        "mcp",
+                    ],
+                ),
+            ),
         )
 
     def cocoindex_query(query: str) -> list[dict[str, str]]:
@@ -32,7 +49,7 @@ def build_cocoindex_tool(container: DockerTicketContainer, settings: Settings) -
 
         Returns up to 20 hits, each with `file` and `snippet` (the matching
         line). STUB: plain case-insensitive text search, standing in for the
-        real CocoIndex MCP server until COCOINDEX_MCP_URL is configured.
+        real CocoIndex MCP server until COCOINDEX_CONTAINER_NAME is configured.
         """
         result = container.exec(f"git grep -n -i -I --no-color -- {_shell_quote(query)} || true")
         hits: list[dict[str, str]] = []

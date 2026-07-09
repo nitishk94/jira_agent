@@ -1,0 +1,11 @@
+services:
+  cocoindex-code:
+    image: ${COCOINDEX_CODE_IMAGE:-cocoindex/cocoindex-code:full}
+    container_name: cocoindex-code
+    restart: unless-stopped
+    volumes:
+      - ${COCOINDEX_HOST_WORKSPACE:-../.cocoindex-workspace}:/workspace
+      - cocoindex-data:/var/cocoindex
+
+volumes:
+  cocoindex-data:

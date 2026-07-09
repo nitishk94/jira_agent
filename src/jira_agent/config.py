@@ -29,8 +29,11 @@ class Settings(BaseSettings):
     jira_client_mode: str = "mock"
     github_client_mode: str = "mock"
 
-    # CocoIndex MCP server; empty => plain-text search stub
-    cocoindex_mcp_url: str = ""
+    # CocoIndex MCP server (stdio via `docker exec`, see
+    # scripts/cocoindex_setup.sh); empty container name => plain-text search
+    # stub instead.
+    cocoindex_container_name: str = ""
+    cocoindex_repo_dir: str = ""
 
     # Run log storage; empty bucket => local-only
     run_log_gcs_bucket: str = ""
