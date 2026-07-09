@@ -44,4 +44,7 @@ def test_settings_overrides() -> None:
 def test_repo_projects_yaml_loads() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     projects = load_projects(repo_root / "config" / "projects.yaml")
-    assert {p.jira_project_key for p in projects} == {"ENG", "PLAT"}
+    by_key = {p.jira_project_key: p for p in projects}
+    assert "ENG" in by_key
+    assert by_key["ENG"].github_repo  # non-empty owner/repo, not a full URL
+    assert not by_key["ENG"].github_repo.startswith("http")

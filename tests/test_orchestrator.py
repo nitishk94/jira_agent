@@ -123,3 +123,30 @@ async def test_bug_with_all_attempts_failing_escalates(tmp_path: Path, monkeypat
     assert "ENG-1" not in jira_client.statuses
     assert github_client.prs == []
     assert "Automated fix attempt failed after 2 tries" in jira_client.comments["ENG-1"][0]
+
+
+async def test_run_once_skips_ticket_unchanged_since_last_run(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(
+        orchestrator_module, "ensure_mirror", lambda repo_url, repo, mirror_dir: tmp_path
+    )
+    triage_result = TriageResult(
+        is_bug=False, issue_type_matched=False, repro_clear=False, reasoning="not a bug"
+    )
+    monkeypatch.setattr(orchestrator_module, "run_triage", _make_triage_fake(triage_result))
+
+    settings = _settings(tmp_path)
+    jira_client = MockJiraClient(tickets=[_ticket()])
+    github_client = MockGitHubClient()
+    run_log_store = RunLogStore(settings)
+
+    await orchestrator_module.run_once(
+        settings, jira_client, github_client, run_log_store, projects=[_project()]
+    )
+    assert jira_client.comments["ENG-1"] == ["not a bug"]
+
+    # Ticket hasn't changed since the run above -> must not be reprocessed.
+    jira_client.comments["ENG-1"].clear()
+    await orchestrator_module.run_once(
+        settings, jira_client, github_client, run_log_store, projects=[_project()]
+    )
+    assert jira_client.comments["ENG-1"] == []

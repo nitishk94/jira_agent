@@ -65,3 +65,17 @@ def test_store_appends_new_run_section_on_reprocessing(tmp_path: Path) -> None:
     assert content.count("## Run ") == 2
     assert "## Run 1" in content and "## Run 2" in content
     assert content.startswith("# TICKET-123")
+
+
+def test_last_processed_at_tracks_most_recent_run(tmp_path: Path) -> None:
+    settings = Settings(_env_file=None, run_log_local_dir=str(tmp_path))
+    store = RunLogStore(settings)
+
+    assert store.last_processed_at("TICKET-123") is None
+
+    ticket = _ticket()
+    log = RunLog(ticket=ticket)
+    log.finish(outcome_line="Triage only.", jira_status_line="unchanged")
+    store.write(log)
+
+    assert store.last_processed_at("TICKET-123") == ticket.updated_at

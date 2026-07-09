@@ -18,7 +18,10 @@ RepoUrlResolver = Callable[[ProjectConfig], str]
 
 
 def _jql_for(project: ProjectConfig) -> str:
-    return f'project = "{project.jira_project_key}" AND resolution = Unresolved'
+    # Only tickets assigned to the agent's own Jira account (spec §1: "tickets
+    # assigned to it") — currentUser() resolves server-side to whichever
+    # account JIRA_USER_EMAIL/JIRA_API_TOKEN authenticates as.
+    return f'project = "{project.jira_project_key}" AND resolution = Unresolved AND assignee = currentUser()'
 
 
 async def run_once(
@@ -49,6 +52,14 @@ async def run_once(
         mirror_path = ensure_mirror(repo_url, project.github_repo, settings.repo_mirror_dir)
 
         for ticket in jira_client.fetch_tickets(_jql_for(project)):
+            last_processed = run_log_store.last_processed_at(ticket.id)
+            if last_processed is not None and ticket.updated_at <= last_processed:
+                # Nothing has changed on this ticket since our last run (its
+                # JQL-matching state — e.g. "comment only, status unchanged"
+                # — would otherwise make it match every poll cycle forever).
+                # A newer `updated_at` (edit, new comment, reopen) clears
+                # this and lets it be reprocessed, per spec §6.
+                continue
             tasks.append(asyncio.create_task(_bounded_process(ticket, project, mirror_path)))
 
     if tasks:

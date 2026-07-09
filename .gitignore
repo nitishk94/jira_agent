@@ -15,3 +15,5 @@ logs/
 .pytest_cache/
 .repo-mirrors/
 .demo-repo-src/
+config/service-account.json
+*.key.json

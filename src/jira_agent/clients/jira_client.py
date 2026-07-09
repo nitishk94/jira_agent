@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from datetime import datetime
 
 from jira_agent.models import Ticket
 
@@ -42,9 +43,8 @@ class MockJiraClient(JiraClient):
 class LiveJiraClient(JiraClient):
     """Real Jira client via the `jira` package.
 
-    Untested — no credentials configured yet. Set JIRA_BASE_URL,
-    JIRA_USER_EMAIL, JIRA_API_TOKEN and JIRA_CLIENT_MODE=live to exercise
-    this against a real Jira site.
+    Set JIRA_BASE_URL, JIRA_USER_EMAIL, JIRA_API_TOKEN and
+    JIRA_CLIENT_MODE=live to exercise this against a real Jira site.
     """
 
     def __init__(self, base_url: str, user_email: str, api_token: str) -> None:
@@ -62,6 +62,8 @@ class LiveJiraClient(JiraClient):
                 summary=issue.fields.summary,
                 description=issue.fields.description or "",
                 url=issue.permalink(),
+                created_at=datetime.fromisoformat(issue.fields.created),
+                updated_at=datetime.fromisoformat(issue.fields.updated),
             )
             for issue in issues
         ]

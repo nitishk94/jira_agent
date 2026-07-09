@@ -12,6 +12,7 @@ from pathlib import Path
 from google.auth.exceptions import DefaultCredentialsError
 
 from jira_agent.clients import get_github_client, get_jira_client
+from jira_agent.clients.github_client import MockGitHubClient
 from jira_agent.clients.jira_client import MockJiraClient
 from jira_agent.config import Settings, get_settings
 from jira_agent.logging_store.run_log import RunLogStore
@@ -89,8 +90,12 @@ async def _run_demo(settings: Settings) -> None:
     demo_src_dir.mkdir(parents=True, exist_ok=True)
     repo_path = _materialize_demo_repo(demo_src_dir)
 
+    # Demo mode always uses mock Jira/GitHub clients, regardless of
+    # JIRA_CLIENT_MODE/GITHUB_CLIENT_MODE — it's meant to be a safe, fully
+    # local dry run (only the Vertex AI calls are real) and must never touch
+    # real Jira tickets or push/open a PR against a real GitHub repo.
     jira_client = MockJiraClient(tickets=[_demo_ticket()])
-    github_client = get_github_client(settings)
+    github_client = MockGitHubClient()
     run_log_store = RunLogStore(settings)
     project = ProjectConfig(jira_project_key="DEMO", github_repo="demo/sample-repo", default_branch="main")
 

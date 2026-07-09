@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -80,6 +81,13 @@ class RunLog:
         if self.jira_status_line:
             lines.append(f"**Jira status:** {self.jira_status_line}\n")
 
+        # Hidden marker (invisible when rendered) recording the ticket's
+        # `updated_at` as of this run — lets RunLogStore.last_processed_at
+        # tell "already handled, nothing changed" apart from "reopened /
+        # edited since" without a separate state store (spec §6: reopened
+        # tickets should be reprocessed, not silently skipped forever).
+        lines.append(f"<!-- ticket_updated_at: {self.ticket.updated_at.isoformat()} -->\n")
+
         return "".join(lines)
 
 
@@ -92,6 +100,15 @@ class RunLogStore:
     def __init__(self, settings: Settings) -> None:
         self._bucket_name = settings.run_log_gcs_bucket
         self._local_dir = Path(settings.run_log_local_dir)
+
+    def last_processed_at(self, ticket_id: str) -> datetime | None:
+        """The ticket's `updated_at` as of the most recent run in its log,
+        or None if the ticket has never been processed. Used by the
+        orchestrator to skip tickets that haven't changed since last time.
+        """
+        existing = self._read_existing(f"{ticket_id}.md")
+        matches = re.findall(r"<!-- ticket_updated_at: (.+?) -->", existing)
+        return datetime.fromisoformat(matches[-1]) if matches else None
 
     def write(self, run_log: RunLog) -> str:
         filename = f"{run_log.ticket.id}.md"
