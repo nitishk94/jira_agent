@@ -72,4 +72,19 @@ class LiveJiraClient(JiraClient):
         self._jira.add_comment(ticket_id, text)
 
     def transition_status(self, ticket_id: str, status: str) -> None:
-        self._jira.transition_issue(ticket_id, status)
+        # A Jira transition is identified by its own name/id, not by the
+        # target status name -- passing the status straight to
+        # transition_issue() only works by coincidence. Look up the
+        # transition whose destination status matches instead. Confirmed
+        # against a real project (POL): its workflow has no direct
+        # "To Do" -> "In Review" transition at all (only "In Progress"), so
+        # treat "no matching transition" as a soft no-op rather than a
+        # crash -- the more important side effects (comment, PR) already
+        # happened by the time this runs and shouldn't be lost over it.
+        available = self._jira.transitions(ticket_id)
+        match = next(
+            (t for t in available if t["to"]["name"].lower() == status.lower()), None
+        )
+        if match is None:
+            return
+        self._jira.transition_issue(ticket_id, match["id"])
