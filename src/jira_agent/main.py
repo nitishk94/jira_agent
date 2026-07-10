@@ -16,12 +16,31 @@ from jira_agent.clients import get_github_client, get_jira_client
 from jira_agent.clients.github_client import MockGitHubClient
 from jira_agent.clients.jira_client import MockJiraClient
 from jira_agent.config import Settings, get_settings
+from jira_agent.execution.docker_runner import CONTAINER_LABELS
 from jira_agent.logging_store.run_log import RunLogStore
 from jira_agent.models import ProjectConfig, Ticket
 from jira_agent.orchestrator import run_once
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("jira_agent")
+
+
+def _sweep_orphaned_containers() -> None:
+    """Best-effort safety net: DockerTicketContainer.__exit__ normally
+    removes its own container, but a Ctrl+C landing mid blocking docker-py
+    call can outrun that cleanup. Sweep anything still running with our
+    label rather than leaving it orphaned."""
+    try:
+        import docker
+
+        client = docker.from_env()
+        label_filter = [f"{k}={v}" for k, v in CONTAINER_LABELS.items()]
+        containers = client.containers.list(all=True, filters={"label": label_filter})
+        for container in containers:
+            logger.info("Removing orphaned Fix-Loop container %s", container.id)
+            container.remove(force=True)
+    except Exception:
+        logger.exception("Failed to sweep orphaned Fix-Loop containers")
 
 
 def _demo_ticket() -> Ticket:
@@ -192,6 +211,10 @@ def main() -> None:
             "to a service account key) for a project with the Vertex AI API enabled, then retry.\n"
             f"Original error: {exc}"
         ) from None
+    except KeyboardInterrupt:
+        logger.info("Interrupted, shutting down.")
+        _sweep_orphaned_containers()
+        raise SystemExit(130) from None
 
 
 if __name__ == "__main__":

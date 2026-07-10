@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import logging
 import tarfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -8,8 +9,16 @@ from pathlib import Path
 import docker
 import docker.errors
 
+logger = logging.getLogger("jira_agent")
+
 _DOCKERFILE = Path(__file__).resolve().parents[3] / "docker" / "fix-loop.Dockerfile"
 IMAGE_TAG = "jira-agent-fix-loop:latest"
+CONTAINER_LABELS = {"app": "jira-agent-fix-loop"}
+
+# Any container we create carries this label, so orphans (e.g. left behind by
+# a Ctrl+C that lands mid blocking docker-py call, before __exit__ gets a
+# chance to run) can always be found and swept:
+#   docker ps -aq --filter label=app=jira-agent-fix-loop | xargs -r docker rm -f
 
 
 @dataclass
@@ -45,6 +54,7 @@ class DockerTicketContainer:
             IMAGE_TAG,
             command="sleep infinity",
             volumes={str(self._mirror_path): {"bind": "/mirror", "mode": "ro"}},
+            labels=CONTAINER_LABELS,
             detach=True,
         )
         # --branch is required: a bare-mirror clone otherwise checks out
@@ -62,8 +72,17 @@ class DockerTicketContainer:
         return self
 
     def __exit__(self, exc_type, exc, tb) -> None:
-        if self._container is not None:
+        if self._container is None:
+            return
+        try:
             self._container.remove(force=True)
+        except Exception:
+            # Never let a cleanup failure mask the original exception (if
+            # any) that's already propagating. Log it so a leaked container
+            # is at least visible instead of silently orphaned -- sweep with
+            # `docker ps -aq --filter label=app=jira-agent-fix-loop | xargs -r docker rm -f`.
+            logger.exception("Failed to remove Fix-Loop container %s", self._container.id)
+        finally:
             self._container = None
 
     def _ensure_image(self) -> None:
