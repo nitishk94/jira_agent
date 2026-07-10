@@ -32,9 +32,10 @@ class DockerTicketContainer:
     execution across tickets without state leakage.
     """
 
-    def __init__(self, mirror_path: Path, workdir: str = "/workspace/repo") -> None:
+    def __init__(self, mirror_path: Path, branch: str, workdir: str = "/workspace/repo") -> None:
         self._client = docker.from_env()
         self._mirror_path = mirror_path
+        self._branch = branch
         self._workdir = workdir
         self._container = None
 
@@ -46,7 +47,15 @@ class DockerTicketContainer:
             volumes={str(self._mirror_path): {"bind": "/mirror", "mode": "ro"}},
             detach=True,
         )
-        clone = self.exec(f"git clone --reference /mirror --dissociate /mirror {self._workdir}", workdir="/")
+        # --branch is required: a bare-mirror clone otherwise checks out
+        # whichever ref the mirror's HEAD happens to point at, which may not
+        # be the project's configured default_branch (confirmed against a
+        # real repo where HEAD/main was a near-empty skeleton and all real
+        # code lived on dev).
+        clone = self.exec(
+            f"git clone --reference /mirror --dissociate --branch {self._branch} /mirror {self._workdir}",
+            workdir="/",
+        )
         if not clone.ok:
             self.__exit__(None, None, None)
             raise RuntimeError(f"repo clone into container failed: {clone.output}")

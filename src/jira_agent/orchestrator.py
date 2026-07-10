@@ -128,7 +128,7 @@ async def _run_fix_loop(
     branch_name = f"fix/{ticket.id}"
     attempts: list[AttemptResult] = []
 
-    with DockerTicketContainer(mirror_path) as container:
+    with DockerTicketContainer(mirror_path, branch=project.default_branch) as container:
         prior_notes: str | None = None
         for attempt_number in range(1, settings.max_fix_attempts + 1):
             attempt = await run_fix_attempt(

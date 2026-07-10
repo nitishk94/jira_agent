@@ -74,12 +74,23 @@ def _build_tools(
     container: DockerTicketContainer, settings: Settings, recorder: ValidationCommands
 ) -> list[Any]:
     def read_file(path: str) -> str:
-        """Reads a file from the checked-out repo."""
-        return container.read_file(path)
+        """Reads a file from the checked-out repo. On failure (e.g. the path
+        doesn't exist), returns an "ERROR: ..." string instead of raising —
+        a tool exception here would crash the entire run rather than give
+        you a chance to correct course (e.g. by searching for the right
+        path first)."""
+        try:
+            return container.read_file(path)
+        except Exception as exc:
+            return f"ERROR: {exc}"
 
     def write_file(path: str, content: str) -> str:
-        """Writes (overwrites) a file in the checked-out repo."""
-        container.write_file(path, content)
+        """Writes (overwrites) a file in the checked-out repo. On failure,
+        returns an "ERROR: ..." string instead of raising."""
+        try:
+            container.write_file(path, content)
+        except Exception as exc:
+            return f"ERROR: {exc}"
         return f"wrote {path}"
 
     def run_shell(command: str) -> dict[str, Any]:
