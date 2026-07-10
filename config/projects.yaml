@@ -1,4 +1,4 @@
 projects:
-  - jira_project_key: "ENG"
+  - jira_project_key: "POL"
     github_repo: "KanakaSoftware/polaris-FDD"
     default_branch: "dev"
