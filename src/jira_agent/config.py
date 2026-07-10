@@ -20,9 +20,12 @@ class Settings(BaseSettings):
     # GitHub
     github_token: str = ""
 
-    # Vertex AI (Gemini 3 Flash)
+    # Vertex AI (Gemini 3 Flash). Gemini 3 models are only served from the
+    # global endpoint on Vertex AI — a regional location (e.g. us-central1)
+    # 404s with "Publisher model ... was not found", confirmed against a
+    # real project this session.
     google_cloud_project: str = ""
-    google_cloud_location: str = "us-central1"
+    google_cloud_location: str = "global"
     gemini_model: str = "gemini-3-flash-preview"
 
     # Client modes: mock | live

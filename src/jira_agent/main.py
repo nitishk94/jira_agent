@@ -9,6 +9,7 @@ import stat
 import subprocess
 from pathlib import Path
 
+from dotenv import load_dotenv
 from google.auth.exceptions import DefaultCredentialsError
 
 from jira_agent.clients import get_github_client, get_jira_client
@@ -116,13 +117,15 @@ async def _run_demo(settings: Settings) -> None:
     logger.info("Run log written under %s", settings.run_log_local_dir)
 
 
-async def _run_once_live(settings: Settings) -> None:
+async def _run_once_live(settings: Settings, ticket_key: str | None = None) -> None:
     jira_client = get_jira_client(settings)
     github_client = get_github_client(settings)
     run_log_store = RunLogStore(settings)
-    logger.info("Running a single live poll cycle (mode: jira=%s, github=%s)...",
-                settings.jira_client_mode, settings.github_client_mode)
-    await run_once(settings, jira_client, github_client, run_log_store)
+    logger.info(
+        "Running a single live poll cycle (mode: jira=%s, github=%s, ticket=%s)...",
+        settings.jira_client_mode, settings.github_client_mode, ticket_key or "<all assigned>",
+    )
+    await run_once(settings, jira_client, github_client, run_log_store, ticket_key=ticket_key)
     logger.info("Cycle complete.")
 
 
@@ -137,6 +140,15 @@ async def _poll_loop(settings: Settings) -> None:
 
 
 def main() -> None:
+    # pydantic-settings (Settings, config.py) parses .env into its own
+    # fields only — it never populates os.environ. Some libraries (e.g.
+    # google-auth's GOOGLE_APPLICATION_CREDENTIALS lookup) read the process
+    # environment directly, so load .env into it here too. Scoped to the
+    # CLI entrypoint (not config.py) so importing config/Settings — as the
+    # test suite does with Settings(_env_file=None) — never leaks real
+    # credentials/modes into a test process's environment.
+    load_dotenv()
+
     parser = argparse.ArgumentParser(prog="jira-agent")
     parser.add_argument(
         "--demo",
@@ -156,6 +168,12 @@ def main() -> None:
             "For controlled manual testing against real tickets."
         ),
     )
+    parser.add_argument(
+        "--ticket",
+        metavar="KEY",
+        default=None,
+        help="With --once: restrict processing to this one ticket key (e.g. POL-1205).",
+    )
     args = parser.parse_args()
 
     settings = get_settings()
@@ -163,7 +181,7 @@ def main() -> None:
         if args.demo:
             asyncio.run(_run_demo(settings))
         elif args.once:
-            asyncio.run(_run_once_live(settings))
+            asyncio.run(_run_once_live(settings, ticket_key=args.ticket))
         else:
             asyncio.run(_poll_loop(settings))
     except DefaultCredentialsError as exc:

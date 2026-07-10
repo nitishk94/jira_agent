@@ -17,7 +17,12 @@ from jira_agent.models import AttemptResult, FixLoopResult, FixOutcome, ProjectC
 RepoUrlResolver = Callable[[ProjectConfig], str]
 
 
-def _jql_for(project: ProjectConfig) -> str:
+def _jql_for(project: ProjectConfig, ticket_key: str | None = None) -> str:
+    if ticket_key:
+        # Scoped to exactly one ticket, bypassing the assignee/resolution
+        # filters — for controlled manual testing against a single real
+        # ticket without touching everything else assigned to the account.
+        return f'key = "{ticket_key}"'
     # Only tickets assigned to the agent's own Jira account (spec §1: "tickets
     # assigned to it") — currentUser() resolves server-side to whichever
     # account JIRA_USER_EMAIL/JIRA_API_TOKEN authenticates as.
@@ -31,11 +36,13 @@ async def run_once(
     run_log_store: RunLogStore,
     repo_url_resolver: RepoUrlResolver | None = None,
     projects: list[ProjectConfig] | None = None,
+    ticket_key: str | None = None,
 ) -> None:
     """One poll cycle across every configured project (spec §3.1).
 
     `projects` defaults to `settings.projects` (loaded from projects.yaml);
     callers like the demo runner can pass an explicit override instead.
+    `ticket_key`, if given, restricts processing to that one ticket only.
     """
     resolve_repo_url = repo_url_resolver or (lambda p: github_client.push_remote_url(p.github_repo))
     semaphore = asyncio.Semaphore(max(1, settings.max_concurrent_tickets))
@@ -51,7 +58,7 @@ async def run_once(
         repo_url = resolve_repo_url(project)
         mirror_path = ensure_mirror(repo_url, project.github_repo, settings.repo_mirror_dir)
 
-        for ticket in jira_client.fetch_tickets(_jql_for(project)):
+        for ticket in jira_client.fetch_tickets(_jql_for(project, ticket_key)):
             last_processed = run_log_store.last_processed_at(ticket.id)
             if last_processed is not None and ticket.updated_at <= last_processed:
                 # Nothing has changed on this ticket since our last run (its
