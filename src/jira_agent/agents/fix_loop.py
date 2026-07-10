@@ -16,7 +16,8 @@ from jira_agent.tools.cocoindex_mcp import build_cocoindex_tool
 FIX_LOOP_INSTRUCTION = """\
 You are the Fix-Loop agent for an autonomous Jira bug-fix system. You have a
 checked-out copy of the target repository and shell access inside a
-disposable container. This is attempt {attempt_number} of {max_attempts}.
+disposable container. The user message tells you which attempt this is, the
+ticket details, triage notes, and (on a retry) the previous attempt's failure.
 
 Do the following, using your tools to actually take each action (don't just
 describe what you would do):
@@ -34,14 +35,33 @@ describe what you would do):
    repro test and the exact shell command to re-run the affected test suite.
    These commands will be re-executed independently to confirm your work —
    they must actually reproduce your validation, not just something plausible.
-
-Ticket:
-Summary: {summary}
-Description: {description}
-
-Triage notes: {triage_reasoning}
-{prior_failure_section}
 """
+
+
+def _build_prompt(
+    ticket: Ticket,
+    triage: TriageResult,
+    attempt_number: int,
+    max_attempts: int,
+    prior_failure_notes: str | None,
+) -> str:
+    # Ticket summary/description are free text from Jira and may contain
+    # literal `{...}` (e.g. Jira's {{monospace}} wiki markup) — this must go
+    # in the user message, never into the agent's `instruction=`, since ADK
+    # re-scans instruction text for its own `{var}` session-state
+    # interpolation and raises KeyError on any stray braces it doesn't own.
+    prior_section = (
+        f"\nPrevious attempt failed:\n{prior_failure_notes}\nDo not repeat the same approach.\n"
+        if prior_failure_notes
+        else ""
+    )
+    return (
+        f"This is attempt {attempt_number} of {max_attempts}.\n\n"
+        f"Ticket:\nSummary: {ticket.summary}\nDescription: {ticket.description}\n\n"
+        f"Triage notes: {triage.reasoning}\n"
+        f"{prior_section}\n"
+        "Begin working the ticket now."
+    )
 
 
 @dataclass
@@ -106,26 +126,14 @@ async def run_fix_attempt(
     agent's own claim that validation passed is never trusted on its own.
     """
     recorder = ValidationCommands()
-    prior_section = (
-        f"\nPrevious attempt failed:\n{prior_failure_notes}\nDo not repeat the same approach.\n"
-        if prior_failure_notes
-        else ""
-    )
-    instruction = FIX_LOOP_INSTRUCTION.format(
-        attempt_number=attempt_number,
-        max_attempts=max_attempts,
-        summary=ticket.summary,
-        description=ticket.description,
-        triage_reasoning=triage.reasoning,
-        prior_failure_section=prior_section,
-    )
     agent = LlmAgent(
         name="fix_loop_agent",
         model=build_gemini_model(settings),
-        instruction=instruction,
+        instruction=FIX_LOOP_INSTRUCTION,
         tools=_build_tools(container, settings, recorder),
     )
-    await run_agent_once(agent, "Begin working the ticket now.", app_name="jira_agent_fix_loop")
+    prompt = _build_prompt(ticket, triage, attempt_number, max_attempts, prior_failure_notes)
+    await run_agent_once(agent, prompt, app_name="jira_agent_fix_loop")
 
     if not recorder.repro_command or not recorder.suite_command:
         return AttemptResult(
