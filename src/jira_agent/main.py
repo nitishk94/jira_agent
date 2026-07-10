@@ -116,15 +116,22 @@ async def _run_demo(settings: Settings) -> None:
     logger.info("Run log written under %s", settings.run_log_local_dir)
 
 
-async def _poll_loop(settings: Settings) -> None:
+async def _run_once_live(settings: Settings) -> None:
     jira_client = get_jira_client(settings)
     github_client = get_github_client(settings)
     run_log_store = RunLogStore(settings)
+    logger.info("Running a single live poll cycle (mode: jira=%s, github=%s)...",
+                settings.jira_client_mode, settings.github_client_mode)
+    await run_once(settings, jira_client, github_client, run_log_store)
+    logger.info("Cycle complete.")
+
+
+async def _poll_loop(settings: Settings) -> None:
     interval_seconds = settings.poll_interval_minutes * 60
 
     while True:
         logger.info("Starting poll cycle")
-        await run_once(settings, jira_client, github_client, run_log_store)
+        await _run_once_live(settings)
         logger.info("Poll cycle complete, sleeping %ss", interval_seconds)
         await asyncio.sleep(interval_seconds)
 
@@ -140,12 +147,23 @@ def main() -> None:
             "No real Jira/GitHub network calls."
         ),
     )
+    parser.add_argument(
+        "--once",
+        action="store_true",
+        help=(
+            "Run a single live poll cycle (real Jira/GitHub per JIRA_CLIENT_MODE/"
+            "GITHUB_CLIENT_MODE, real Vertex AI) and exit, instead of polling forever. "
+            "For controlled manual testing against real tickets."
+        ),
+    )
     args = parser.parse_args()
 
     settings = get_settings()
     try:
         if args.demo:
             asyncio.run(_run_demo(settings))
+        elif args.once:
+            asyncio.run(_run_once_live(settings))
         else:
             asyncio.run(_poll_loop(settings))
     except DefaultCredentialsError as exc:
