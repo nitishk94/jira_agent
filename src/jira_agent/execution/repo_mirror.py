@@ -5,7 +5,11 @@ from pathlib import Path
 
 
 def mirror_path_for(repo: str, mirror_dir: str | Path) -> Path:
-    return Path(mirror_dir) / f"{repo.replace('/', '__')}.git"
+    # Always absolute: Docker's bind-mount volumes require an absolute host
+    # path, and settings.repo_mirror_dir defaults to a relative "./..." path
+    # — a relative mirror path here previously produced a malformed-path
+    # error from Docker Desktop on Windows (500 Server Error on create).
+    return (Path(mirror_dir) / f"{repo.replace('/', '__')}.git").resolve()
 
 
 def ensure_mirror(repo_url: str, repo: str, mirror_dir: str | Path) -> Path:
