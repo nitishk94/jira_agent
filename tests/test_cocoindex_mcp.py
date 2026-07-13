@@ -38,3 +38,4 @@ def test_real_mode_builds_docker_exec_stdio_toolset() -> None:
         "ccc",
         "mcp",
     ]
+    assert params.timeout == 60.0  # ADK's 5s default is too short for ccc mcp

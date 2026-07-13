@@ -41,6 +41,9 @@ def build_cocoindex_tool(container: DockerTicketContainer, settings: Settings) -
                         "mcp",
                     ],
                 ),
+                # ADK's default is 5s -- too short for ccc mcp's docker exec +
+                # process/model startup + index refresh. See Settings docstring.
+                timeout=settings.cocoindex_timeout_seconds,
             ),
         )
 

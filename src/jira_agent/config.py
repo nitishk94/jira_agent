@@ -37,6 +37,12 @@ class Settings(BaseSettings):
     # stub instead.
     cocoindex_container_name: str = ""
     cocoindex_repo_dir: str = ""
+    # ADK's MCP client default (5s) is too short for `ccc mcp`: docker exec
+    # + process startup + embedding-model load + (by default) an index
+    # refresh before every search can easily exceed it, especially on a
+    # cold start. Confirmed against a real run ("Timed out while waiting
+    # for response to ClientRequest. Waited 5.0 seconds.").
+    cocoindex_timeout_seconds: float = 60.0
 
     # Run log storage; empty bucket => local-only
     run_log_gcs_bucket: str = ""
