@@ -9,7 +9,7 @@ from jira_agent.agents.triage import run_triage
 from jira_agent.clients.github_client import GitHubClient
 from jira_agent.clients.jira_client import JiraClient
 from jira_agent.config import Settings
-from jira_agent.execution.docker_runner import DockerTicketContainer
+from jira_agent.execution.docker_runner import IMAGE_TAG, DockerTicketContainer
 from jira_agent.execution.repo_mirror import ensure_mirror
 from jira_agent.logging_store.run_log import RunLog, RunLogStore
 from jira_agent.models import AttemptResult, FixLoopResult, FixOutcome, ProjectConfig, Ticket, TriageResult
@@ -128,7 +128,8 @@ async def _run_fix_loop(
     branch_name = f"fix/{ticket.id}"
     attempts: list[AttemptResult] = []
 
-    with DockerTicketContainer(mirror_path, branch=project.default_branch) as container:
+    image_tag = project.docker_image or IMAGE_TAG
+    with DockerTicketContainer(mirror_path, branch=project.default_branch, image_tag=image_tag) as container:
         prior_notes: str | None = None
         for attempt_number in range(1, settings.max_fix_attempts + 1):
             attempt = await run_fix_attempt(

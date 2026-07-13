@@ -10,6 +10,7 @@ from jira_agent.agents.model import build_gemini_model
 from jira_agent.agents.runner_utils import run_agent_once
 from jira_agent.config import Settings
 from jira_agent.execution.docker_runner import DockerTicketContainer
+from jira_agent.logging_store.mcp_call_log import COCOINDEX_TOOL_NAMES, McpCallLog
 from jira_agent.models import AttemptResult, Ticket, TriageResult
 from jira_agent.tools.cocoindex_mcp import build_cocoindex_tool
 
@@ -123,6 +124,15 @@ def _build_tools(
     ]
 
 
+def _build_mcp_logging_callback(mcp_log: McpCallLog, attempt_number: int):
+    def _log_cocoindex_calls(*, tool, args, tool_context, tool_response):
+        if tool.name in COCOINDEX_TOOL_NAMES:
+            mcp_log.record(attempt_number, tool.name, args, tool_response)
+        return None  # never override the actual tool response
+
+    return _log_cocoindex_calls
+
+
 async def run_fix_attempt(
     container: DockerTicketContainer,
     settings: Settings,
@@ -137,11 +147,13 @@ async def run_fix_attempt(
     agent's own claim that validation passed is never trusted on its own.
     """
     recorder = ValidationCommands()
+    mcp_log = McpCallLog(settings.run_log_local_dir, ticket.id)
     agent = LlmAgent(
         name="fix_loop_agent",
         model=build_gemini_model(settings),
         instruction=FIX_LOOP_INSTRUCTION,
         tools=_build_tools(container, settings, recorder),
+        after_tool_callback=_build_mcp_logging_callback(mcp_log, attempt_number),
     )
     prompt = _build_prompt(ticket, triage, attempt_number, max_attempts, prior_failure_notes)
     await run_agent_once(agent, prompt, app_name="jira_agent_fix_loop")

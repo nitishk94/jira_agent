@@ -1,4 +1,5 @@
 projects:
   - jira_project_key: "POL"
-    github_repo: "KanakaSoftware/polaris-FDD"
+    github_repo: "KanakaSoftware/polaris-fe"
     default_branch: "dev"
+    docker_image: "jira-agent-fix-loop-node:latest"

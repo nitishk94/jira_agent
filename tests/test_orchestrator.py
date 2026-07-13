@@ -68,7 +68,7 @@ async def test_non_bug_ticket_is_comment_only(tmp_path: Path, monkeypatch) -> No
 async def test_bug_with_clear_repro_and_passing_fix_opens_pr(tmp_path: Path, monkeypatch) -> None:
     triage_result = TriageResult(is_bug=True, issue_type_matched=True, repro_clear=True, reasoning="Clear repro.")
     monkeypatch.setattr(orchestrator_module, "run_triage", _make_triage_fake(triage_result))
-    monkeypatch.setattr(orchestrator_module, "DockerTicketContainer", lambda mirror_path, branch: _FakeContainer())
+    monkeypatch.setattr(orchestrator_module, "DockerTicketContainer", lambda mirror_path, branch, image_tag: _FakeContainer())
 
     calls = []
 
@@ -98,7 +98,7 @@ async def test_bug_with_clear_repro_and_passing_fix_opens_pr(tmp_path: Path, mon
 async def test_bug_with_all_attempts_failing_escalates(tmp_path: Path, monkeypatch) -> None:
     triage_result = TriageResult(is_bug=True, issue_type_matched=True, repro_clear=True, reasoning="Clear repro.")
     monkeypatch.setattr(orchestrator_module, "run_triage", _make_triage_fake(triage_result))
-    monkeypatch.setattr(orchestrator_module, "DockerTicketContainer", lambda mirror_path, branch: _FakeContainer())
+    monkeypatch.setattr(orchestrator_module, "DockerTicketContainer", lambda mirror_path, branch, image_tag: _FakeContainer())
 
     calls = []
 

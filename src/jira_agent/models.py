@@ -10,6 +10,11 @@ class ProjectConfig(BaseModel):
     jira_project_key: str
     github_repo: str
     default_branch: str = "main"
+    # Fix-Loop container image for this project's repo; empty uses the
+    # default Python-only image (docker_runner.IMAGE_TAG). Set to
+    # docker_runner.NODE_IMAGE_TAG (or another built image) for repos that
+    # need a different toolchain, e.g. a JS/TypeScript frontend needing Node.
+    docker_image: str = ""
 
 
 class Ticket(BaseModel):

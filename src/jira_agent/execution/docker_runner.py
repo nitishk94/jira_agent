@@ -11,9 +11,17 @@ import docker.errors
 
 logger = logging.getLogger("jira_agent")
 
-_DOCKERFILE = Path(__file__).resolve().parents[3] / "docker" / "fix-loop.Dockerfile"
+_DOCKER_DIR = Path(__file__).resolve().parents[3] / "docker"
 IMAGE_TAG = "jira-agent-fix-loop:latest"
+NODE_IMAGE_TAG = "jira-agent-fix-loop-node:latest"
 CONTAINER_LABELS = {"app": "jira-agent-fix-loop"}
+
+# Which Dockerfile builds which image tag, so DockerTicketContainer can
+# auto-build whichever one a project selects (ProjectConfig.docker_image).
+_DOCKERFILES = {
+    IMAGE_TAG: "fix-loop.Dockerfile",
+    NODE_IMAGE_TAG: "fix-loop-node.Dockerfile",
+}
 
 # Any container we create carries this label, so orphans (e.g. left behind by
 # a Ctrl+C that lands mid blocking docker-py call, before __exit__ gets a
@@ -41,17 +49,24 @@ class DockerTicketContainer:
     execution across tickets without state leakage.
     """
 
-    def __init__(self, mirror_path: Path, branch: str, workdir: str = "/workspace/repo") -> None:
+    def __init__(
+        self,
+        mirror_path: Path,
+        branch: str,
+        image_tag: str = IMAGE_TAG,
+        workdir: str = "/workspace/repo",
+    ) -> None:
         self._client = docker.from_env()
         self._mirror_path = mirror_path
         self._branch = branch
+        self._image_tag = image_tag
         self._workdir = workdir
         self._container = None
 
     def __enter__(self) -> "DockerTicketContainer":
         self._ensure_image()
         self._container = self._client.containers.run(
-            IMAGE_TAG,
+            self._image_tag,
             command="sleep infinity",
             volumes={str(self._mirror_path): {"bind": "/mirror", "mode": "ro"}},
             labels=CONTAINER_LABELS,
@@ -87,11 +102,15 @@ class DockerTicketContainer:
 
     def _ensure_image(self) -> None:
         try:
-            self._client.images.get(IMAGE_TAG)
+            self._client.images.get(self._image_tag)
         except docker.errors.ImageNotFound:
-            self._client.images.build(
-                path=str(_DOCKERFILE.parent), dockerfile=_DOCKERFILE.name, tag=IMAGE_TAG
-            )
+            dockerfile = _DOCKERFILES.get(self._image_tag)
+            if dockerfile is None:
+                raise ValueError(
+                    f"No Dockerfile known for image tag {self._image_tag!r}. "
+                    f"Known tags: {sorted(_DOCKERFILES)}"
+                ) from None
+            self._client.images.build(path=str(_DOCKER_DIR), dockerfile=dockerfile, tag=self._image_tag)
 
     def exec(self, command: str, workdir: str | None = None) -> ExecResult:
         assert self._container is not None, "container not started"
