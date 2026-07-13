@@ -71,6 +71,23 @@ class ValidationCommands:
     suite_command: str | None = None
 
 
+# A single tool result this large (e.g. `cat package-lock.json`, a verbose
+# `npm install`/build log) can by itself push a long-running attempt's
+# conversation past Gemini's 1M-token context limit, crashing the whole
+# attempt. Confirmed against a real run against an Angular repo (polaris-fe)
+# with "input token count exceeds the maximum number of tokens allowed
+# 1048576". Cap any single tool output rather than trying to raise the
+# context limit.
+_MAX_TOOL_OUTPUT_CHARS = 20_000
+
+
+def _truncate(text: str, limit: int = _MAX_TOOL_OUTPUT_CHARS) -> str:
+    if len(text) <= limit:
+        return text
+    omitted = len(text) - limit
+    return f"{text[:limit]}\n... [truncated {omitted} more characters — output too large to include in full]"
+
+
 def _build_tools(
     container: DockerTicketContainer, settings: Settings, recorder: ValidationCommands
 ) -> list[Any]:
@@ -79,9 +96,10 @@ def _build_tools(
         doesn't exist), returns an "ERROR: ..." string instead of raising —
         a tool exception here would crash the entire run rather than give
         you a chance to correct course (e.g. by searching for the right
-        path first)."""
+        path first). Very large files are truncated — prefer targeted
+        reads/greps over catting generated files like lock files."""
         try:
-            return container.read_file(path)
+            return _truncate(container.read_file(path))
         except Exception as exc:
             return f"ERROR: {exc}"
 
@@ -95,13 +113,15 @@ def _build_tools(
         return f"wrote {path}"
 
     def run_shell(command: str) -> dict[str, Any]:
-        """Runs a shell command in the checked-out repo. Returns exit_code and output."""
+        """Runs a shell command in the checked-out repo. Returns exit_code
+        and output (very large output, e.g. from `npm install`, is
+        truncated — prefer quiet/summary flags where available)."""
         result = container.exec(command)
-        return {"exit_code": result.exit_code, "output": result.output}
+        return {"exit_code": result.exit_code, "output": _truncate(result.output)}
 
     def git_diff() -> str:
         """Returns the current `git diff` against the repo's checked-out commit."""
-        return container.exec("git diff").output
+        return _truncate(container.exec("git diff").output)
 
     def report_validation_commands(repro_command: str, suite_command: str) -> str:
         """Records the exact shell commands used to validate the fix.
@@ -173,5 +193,12 @@ async def run_fix_attempt(
         f"suite (`{recorder.suite_command}`): {'pass' if suite_result.ok else 'FAIL'}"
     )
     if not passed:
-        notes += f"\n\nrepro output:\n{repro_result.output}\n\nsuite output:\n{suite_result.output}"
+        # Truncated: this text becomes the next attempt's prior_failure_notes
+        # (see _build_prompt) — an oversized validation log here would bloat
+        # that attempt's starting prompt the same way an untruncated tool
+        # result would.
+        notes += (
+            f"\n\nrepro output:\n{_truncate(repro_result.output)}"
+            f"\n\nsuite output:\n{_truncate(suite_result.output)}"
+        )
     return AttemptResult(attempt_number=attempt_number, passed=passed, notes=notes)
