@@ -116,6 +116,31 @@ async def process_ticket(
     run_log_store.write(run_log)
 
 
+_LOCKFILES = ("package-lock.json", "yarn.lock", "pnpm-lock.yaml", "uv.lock")
+_MANIFESTS = {
+    "package-lock.json": "package.json",
+    "yarn.lock": "package.json",
+    "pnpm-lock.yaml": "package.json",
+    "uv.lock": "pyproject.toml",
+}
+
+
+def _revert_incidental_lockfile_churn(container: DockerTicketContainer) -> None:
+    """Running `npm install`/etc. during validation can regenerate a
+    lockfile wholesale (confirmed on a real PR: package-lock.json with
+    +9258/-5729 lines for an unrelated one-line bug fix), swamping the diff
+    with noise. If the corresponding manifest (package.json, pyproject.toml)
+    didn't actually change -- i.e. no dependency was genuinely added -- the
+    lockfile churn is incidental, so discard it before committing.
+    """
+    for lockfile in _LOCKFILES:
+        manifest = _MANIFESTS[lockfile]
+        lockfile_changed = container.exec(f"git diff --name-only -- {lockfile}").output.strip()
+        manifest_changed = container.exec(f"git diff --name-only -- {manifest}").output.strip()
+        if lockfile_changed and not manifest_changed:
+            container.exec(f"git checkout -- {lockfile}")
+
+
 async def _run_fix_loop(
     ticket: Ticket,
     project: ProjectConfig,
@@ -139,6 +164,7 @@ async def _run_fix_loop(
             run_log.record_attempt(attempt)
 
             if attempt.passed:
+                _revert_incidental_lockfile_churn(container)
                 files_changed = len(container.exec("git diff --name-only").output.splitlines())
                 container.exec(f"git checkout -b {branch_name}")
                 container.exec("git add -A")

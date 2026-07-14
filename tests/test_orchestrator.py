@@ -150,3 +150,31 @@ async def test_run_once_skips_ticket_unchanged_since_last_run(tmp_path: Path, mo
         settings, jira_client, github_client, run_log_store, projects=[_project()]
     )
     assert jira_client.comments["ENG-1"] == []
+
+
+class _RecordingContainer:
+    """Fake container for _revert_incidental_lockfile_churn: reports which
+    paths `git diff` should say are changed, and records every command."""
+
+    def __init__(self, changed_paths: set[str]) -> None:
+        self._changed_paths = changed_paths
+        self.commands: list[str] = []
+
+    def exec(self, command: str, workdir: str | None = None) -> ExecResult:
+        self.commands.append(command)
+        for path in self._changed_paths:
+            if command == f"git diff --name-only -- {path}":
+                return ExecResult(exit_code=0, output=path)
+        return ExecResult(exit_code=0, output="")
+
+
+def test_revert_incidental_lockfile_churn_reverts_lockfile_without_manifest_change() -> None:
+    container = _RecordingContainer(changed_paths={"package-lock.json"})
+    orchestrator_module._revert_incidental_lockfile_churn(container)
+    assert "git checkout -- package-lock.json" in container.commands
+
+
+def test_revert_incidental_lockfile_churn_keeps_lockfile_when_manifest_also_changed() -> None:
+    container = _RecordingContainer(changed_paths={"package-lock.json", "package.json"})
+    orchestrator_module._revert_incidental_lockfile_churn(container)
+    assert "git checkout -- package-lock.json" not in container.commands

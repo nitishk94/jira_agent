@@ -36,6 +36,15 @@ describe what you would do):
    repro test and the exact shell command to re-run the affected test suite.
    These commands will be re-executed independently to confirm your work —
    they must actually reproduce your validation, not just something plausible.
+
+Before calling report_validation_commands, clean up (run_shell `rm`) any
+scratch files you created purely for your own investigation — throwaway
+scripts you used to think through the logic, one-off debugging helpers, or
+alternate repro attempts you abandoned for a later approach. The final diff
+should contain only the real fix and, if useful, one properly-placed repro
+test — not a trail of every intermediate script. If a command you ran (e.g.
+`npm install`) modified a lockfile without you actually adding a
+dependency, that's incidental — leave it, it'll be reverted automatically.
 """
 
 
