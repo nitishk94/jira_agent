@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from jira_agent.agents.fix_loop import _build_mcp_logging_callback
+from jira_agent.agents.fix_loop import _CallCounter, _build_mcp_logging_callback
 from jira_agent.logging_store.mcp_call_log import McpCallLog
 
 
@@ -24,7 +24,8 @@ def test_record_appends_jsonl_entries(tmp_path: Path) -> None:
 
 def test_logging_callback_only_records_cocoindex_tools(tmp_path: Path) -> None:
     log = McpCallLog(str(tmp_path), "ENG-1")
-    callback = _build_mcp_logging_callback(log, attempt_number=1)
+    counter = _CallCounter()
+    callback = _build_mcp_logging_callback(log, attempt_number=1, counter=counter)
 
     class _FakeTool:
         def __init__(self, name: str) -> None:
@@ -43,3 +44,4 @@ def test_logging_callback_only_records_cocoindex_tools(tmp_path: Path) -> None:
     lines = (tmp_path / "ENG-1-mcp-calls.log").read_text(encoding="utf-8").splitlines()
     assert len(lines) == 1  # only the "search" call was recorded, not run_shell
     assert json.loads(lines[0])["tool"] == "search"
+    assert counter.count == 1

@@ -163,6 +163,17 @@ async def _run_fix_loop(
             attempts.append(attempt)
             run_log.record_attempt(attempt)
 
+            # Surfaced explicitly (including the zero case) because it was
+            # otherwise invisible outside the raw mcp-calls.log: confirmed on
+            # a real run that an attempt can open a PR while never calling
+            # CocoIndex at all.
+            total_cocoindex_calls = sum(a.cocoindex_calls for a in attempts)
+            run_log.record_code_navigation(
+                f"Queried CocoIndex {total_cocoindex_calls} time(s) across {len(attempts)} attempt(s)."
+                if total_cocoindex_calls
+                else f"Did not call CocoIndex code search in {len(attempts)} attempt(s) so far."
+            )
+
             if attempt.passed:
                 _revert_incidental_lockfile_churn(container)
                 files_changed = len(container.exec("git diff --name-only").output.splitlines())

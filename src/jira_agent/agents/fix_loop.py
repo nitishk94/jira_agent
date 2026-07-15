@@ -27,7 +27,10 @@ describe what you would do):
    based on the ticket's repro steps, and run it to confirm it currently
    fails. This is both a sanity check on your understanding of the bug and
    becomes the regression test.
-2. Use cocoindex_query to locate the relevant code region.
+2. Call cocoindex_query at least once to locate the relevant code region —
+   this is required even if you already have a strong guess at the file
+   from the ticket text or a prior attempt's notes; treat its results as
+   confirmation, not an optional step to skip under time pressure.
 3. Read the relevant file(s) with read_file, then apply a fix with write_file.
 4. Re-run the repro test — it must pass. Then run the existing test suite for
    the affected area — it must not regress.
@@ -153,9 +156,15 @@ def _build_tools(
     ]
 
 
-def _build_mcp_logging_callback(mcp_log: McpCallLog, attempt_number: int):
+@dataclass
+class _CallCounter:
+    count: int = 0
+
+
+def _build_mcp_logging_callback(mcp_log: McpCallLog, attempt_number: int, counter: _CallCounter):
     def _log_cocoindex_calls(*, tool, args, tool_context, tool_response):
         if tool.name in COCOINDEX_TOOL_NAMES:
+            counter.count += 1
             mcp_log.record(attempt_number, tool.name, args, tool_response)
         return None  # never override the actual tool response
 
@@ -177,12 +186,13 @@ async def run_fix_attempt(
     """
     recorder = ValidationCommands()
     mcp_log = McpCallLog(settings.run_log_local_dir, ticket.id)
+    counter = _CallCounter()
     agent = LlmAgent(
         name="fix_loop_agent",
         model=build_gemini_model(settings),
         instruction=FIX_LOOP_INSTRUCTION,
         tools=_build_tools(container, settings, recorder),
-        after_tool_callback=_build_mcp_logging_callback(mcp_log, attempt_number),
+        after_tool_callback=_build_mcp_logging_callback(mcp_log, attempt_number, counter),
     )
     prompt = _build_prompt(ticket, triage, attempt_number, max_attempts, prior_failure_notes)
     await run_agent_once(agent, prompt, app_name="jira_agent_fix_loop")
@@ -192,6 +202,7 @@ async def run_fix_attempt(
             attempt_number=attempt_number,
             passed=False,
             notes="Agent did not report validation commands before ending its turn.",
+            cocoindex_calls=counter.count,
         )
 
     repro_result = container.exec(recorder.repro_command)
@@ -210,4 +221,6 @@ async def run_fix_attempt(
             f"\n\nrepro output:\n{_truncate(repro_result.output)}"
             f"\n\nsuite output:\n{_truncate(suite_result.output)}"
         )
-    return AttemptResult(attempt_number=attempt_number, passed=passed, notes=notes)
+    return AttemptResult(
+        attempt_number=attempt_number, passed=passed, notes=notes, cocoindex_calls=counter.count
+    )

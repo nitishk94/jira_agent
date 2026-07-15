@@ -39,6 +39,12 @@ class AttemptResult(BaseModel):
     attempt_number: int
     passed: bool
     notes: str
+    # How many times this attempt called the CocoIndex code-search tool.
+    # Surfaced separately from `notes` so the human-readable run log can
+    # flag the zero-call case explicitly — confirmed on a real run that an
+    # attempt can open a real PR while never using code search at all,
+    # which was otherwise invisible outside the raw mcp-calls.log.
+    cocoindex_calls: int = 0
 
 
 class FixOutcome(str, Enum):
