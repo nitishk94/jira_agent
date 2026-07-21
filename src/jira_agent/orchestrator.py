@@ -12,6 +12,7 @@ from jira_agent.config import Settings
 from jira_agent.execution.docker_runner import IMAGE_TAG, DockerTicketContainer
 from jira_agent.execution.repo_mirror import ensure_mirror
 from jira_agent.logging_store.run_log import RunLog, RunLogStore
+from jira_agent.logging_store.timing_log import TimingLog
 from jira_agent.models import AttemptResult, FixLoopResult, FixOutcome, ProjectConfig, Ticket, TriageResult
 
 RepoUrlResolver = Callable[[ProjectConfig], str]
@@ -86,34 +87,46 @@ async def process_ticket(
     Fix-Loop, update Jira, and always write a run log — regardless of outcome.
     """
     run_log = RunLog(ticket=ticket)
+    timing_log = TimingLog(settings.run_log_local_dir)
+    start_time = timing_log.record_start(ticket.id)
+    outcome = "crashed"  # overwritten below on any non-exceptional path
+    try:
+        triage = await run_triage(ticket, settings)
+        run_log.record_triage(triage)
 
-    triage = await run_triage(ticket, settings)
-    run_log.record_triage(triage)
-
-    if triage.is_bug and triage.repro_clear:
-        result = await _run_fix_loop(ticket, project, triage, settings, mirror_path, run_log, github_client)
-        if result.outcome is FixOutcome.PR_OPENED:
-            jira_client.add_comment(ticket.id, f"Fix proposed: {result.pr_url}")
-            jira_client.transition_status(ticket.id, "In Review")
-            run_log.finish(
-                outcome_line=f"PR opened → `{result.branch}` → [PR link]({result.pr_url})",
-                jira_status_line="→ In Review",
+        if triage.is_bug and triage.repro_clear:
+            result = await _run_fix_loop(
+                ticket, project, triage, settings, mirror_path, run_log, github_client
             )
+            if result.outcome is FixOutcome.PR_OPENED:
+                jira_client.add_comment(ticket.id, f"Fix proposed: {result.pr_url}")
+                jira_client.transition_status(ticket.id, "In Review")
+                run_log.finish(
+                    outcome_line=f"PR opened → `{result.branch}` → [PR link]({result.pr_url})",
+                    jira_status_line="→ In Review",
+                )
+                outcome = "pr_opened"
+            else:
+                summary = " / ".join(a.notes.splitlines()[0] for a in result.attempts if a.notes)
+                jira_client.add_comment(
+                    ticket.id,
+                    f"Automated fix attempt failed after {len(result.attempts)} tries. {summary}",
+                )
+                run_log.finish(
+                    outcome_line=f"Escalated after {len(result.attempts)} failed attempts.",
+                    jira_status_line="unchanged",
+                )
+                outcome = "escalated"
         else:
-            summary = " / ".join(a.notes.splitlines()[0] for a in result.attempts if a.notes)
-            jira_client.add_comment(
-                ticket.id,
-                f"Automated fix attempt failed after {len(result.attempts)} tries. {summary}",
-            )
-            run_log.finish(
-                outcome_line=f"Escalated after {len(result.attempts)} failed attempts.",
-                jira_status_line="unchanged",
-            )
-    else:
-        jira_client.add_comment(ticket.id, triage.reasoning)
-        run_log.finish(outcome_line="Triage only — no fix attempted.", jira_status_line="unchanged")
+            jira_client.add_comment(ticket.id, triage.reasoning)
+            run_log.finish(outcome_line="Triage only — no fix attempted.", jira_status_line="unchanged")
+            outcome = "triage_only"
 
-    run_log_store.write(run_log)
+        run_log_store.write(run_log)
+    finally:
+        # Recorded even on a crash (outcome stays "crashed") -- how long a
+        # run lasted before failing is useful debugging info on its own.
+        timing_log.record_end(ticket.id, start_time, outcome)
 
 
 _LOCKFILES = ("package-lock.json", "yarn.lock", "pnpm-lock.yaml", "uv.lock")
