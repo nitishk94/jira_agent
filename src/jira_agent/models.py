@@ -50,6 +50,13 @@ class AttemptResult(BaseModel):
 class FixOutcome(str, Enum):
     PR_OPENED = "pr_opened"
     ESCALATED = "escalated"
+    # The fix itself was validated (repro + suite passed) but couldn't be
+    # delivered -- confirmed on a real run: `git push` failed silently
+    # (pending GitHub org approval for the token) and the code proceeded to
+    # open_pr anyway, crashing on a cryptic 422 instead of a clear message.
+    # Distinct from ESCALATED: this isn't a fix-quality problem a retry
+    # would help with, it's an infrastructure/permissions problem.
+    DELIVERY_FAILED = "delivery_failed"
 
 
 class FixLoopResult(BaseModel):
@@ -59,3 +66,4 @@ class FixLoopResult(BaseModel):
     branch: str | None = None
     files_changed: int = 0
     commits: int = 0
+    delivery_error: str | None = None

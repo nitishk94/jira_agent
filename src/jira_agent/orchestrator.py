@@ -106,6 +106,22 @@ async def process_ticket(
                     jira_status_line="→ In Review",
                 )
                 outcome = "pr_opened"
+            elif result.outcome is FixOutcome.DELIVERY_FAILED:
+                # The fix was validated -- only the push/PR delivery failed
+                # (e.g. GitHub permissions) -- so say that plainly instead of
+                # implying the fix itself was bad, which "escalated" would.
+                jira_client.add_comment(
+                    ticket.id,
+                    "A fix was found and validated, but could not be delivered: pushing "
+                    f"branch `{result.branch}` to GitHub failed. This is very likely a "
+                    "repository access/permissions issue, not a problem with the fix "
+                    f"itself.\n\n{result.delivery_error}",
+                )
+                run_log.finish(
+                    outcome_line=f"Fix validated but delivery failed (push to `{result.branch}` failed).",
+                    jira_status_line="unchanged",
+                )
+                outcome = "delivery_failed"
             else:
                 summary = " / ".join(a.notes.splitlines()[0] for a in result.attempts if a.notes)
                 jira_client.add_comment(
@@ -197,7 +213,22 @@ async def _run_fix_loop(
                     f'commit -m "Fix {ticket.id}: {ticket.summary}"'
                 )
                 remote_url = github_client.push_remote_url(project.github_repo)
-                container.exec(f"git push {remote_url} HEAD:{branch_name}")
+                push_result = container.exec(f"git push {remote_url} HEAD:{branch_name}")
+                if not push_result.ok:
+                    # Don't call open_pr against a branch that was never
+                    # actually pushed -- confirmed on a real run: silent push
+                    # failure (pending GitHub org token approval) led straight
+                    # to a cryptic 422 from open_pr and a lost run log. The
+                    # fix itself is validated and correct; only delivery
+                    # failed, so this isn't an ESCALATED (fix-quality) case.
+                    return FixLoopResult(
+                        outcome=FixOutcome.DELIVERY_FAILED,
+                        attempts=attempts,
+                        branch=branch_name,
+                        files_changed=files_changed,
+                        commits=1,
+                        delivery_error=push_result.output,
+                    )
 
                 pr = github_client.open_pr(
                     repo=project.github_repo,
