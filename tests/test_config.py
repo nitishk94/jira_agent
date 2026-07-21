@@ -42,9 +42,14 @@ def test_settings_overrides() -> None:
 
 
 def test_repo_projects_yaml_loads() -> None:
+    # Deliberately doesn't assert on a specific project key/repo -- this is
+    # real, user-managed config that changes as projects are added/swapped;
+    # the test only needs to confirm the file parses into well-formed
+    # entries, not pin today's particular content.
     repo_root = Path(__file__).resolve().parents[1]
     projects = load_projects(repo_root / "config" / "projects.yaml")
-    by_key = {p.jira_project_key: p for p in projects}
-    assert "POL" in by_key
-    assert by_key["POL"].github_repo  # non-empty owner/repo, not a full URL
-    assert not by_key["POL"].github_repo.startswith("http")
+    assert len(projects) >= 1
+    for project in projects:
+        assert project.jira_project_key
+        assert project.github_repo  # non-empty owner/repo, not a full URL
+        assert not project.github_repo.startswith("http")

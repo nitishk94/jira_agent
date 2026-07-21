@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Any
 
@@ -13,6 +14,8 @@ from jira_agent.execution.docker_runner import DockerTicketContainer
 from jira_agent.logging_store.mcp_call_log import COCOINDEX_TOOL_NAMES, McpCallLog
 from jira_agent.models import AttemptResult, Ticket, TriageResult
 from jira_agent.tools.cocoindex_mcp import build_cocoindex_tool
+
+logger = logging.getLogger("jira_agent")
 
 FIX_LOOP_INSTRUCTION = """\
 You are the Fix-Loop agent for an autonomous Jira bug-fix system. You have a
@@ -171,6 +174,34 @@ def _build_mcp_logging_callback(mcp_log: McpCallLog, attempt_number: int, counte
     return _log_cocoindex_calls
 
 
+def _shorten(value: Any, limit: int = 160) -> str:
+    text = str(value).replace("\n", " ")
+    return text if len(text) <= limit else f"{text[:limit]}…"
+
+
+def _build_console_logging_callback(ticket_id: str, attempt_number: int):
+    """Every ADK "Sending out request"/"Response received" line looks
+    identical from the console, so a long attempt is otherwise a black box
+    while it's running. Logs one line per tool call — name, args, and a
+    short preview of the result — so you can watch what the agent is
+    actually doing in real time, not just that model calls are happening.
+    """
+
+    def _log_call(*, tool, args, tool_context, tool_response):
+        args_preview = ", ".join(f"{k}={_shorten(v, 80)}" for k, v in args.items())
+        logger.info(
+            "[%s attempt %d] %s(%s) -> %s",
+            ticket_id,
+            attempt_number,
+            tool.name,
+            args_preview,
+            _shorten(tool_response),
+        )
+        return None  # never override the actual tool response
+
+    return _log_call
+
+
 async def run_fix_attempt(
     container: DockerTicketContainer,
     settings: Settings,
@@ -192,7 +223,10 @@ async def run_fix_attempt(
         model=build_gemini_model(settings),
         instruction=FIX_LOOP_INSTRUCTION,
         tools=_build_tools(container, settings, recorder),
-        after_tool_callback=_build_mcp_logging_callback(mcp_log, attempt_number, counter),
+        after_tool_callback=[
+            _build_console_logging_callback(ticket.id, attempt_number),
+            _build_mcp_logging_callback(mcp_log, attempt_number, counter),
+        ],
     )
     prompt = _build_prompt(ticket, triage, attempt_number, max_attempts, prior_failure_notes)
     await run_agent_once(agent, prompt, app_name="jira_agent_fix_loop")
